@@ -1,0 +1,29 @@
+name: coffi-benchmark
+channels:
+  - conda-forge
+  - defaults
+  - nvidia
+dependencies:
+  - bokeh
+  - ipykernel
+  - matplotlib
+  - notebook
+  - numpy
+  - pandas
+  - panel
+  - pip
+  - scikit-learn
+  - scipy
+  - seaborn
+  - shap
+  - umap-learn
+  - selenium
+  - firefox 
+  - geckodriver
+  - python=3.7.10
+  - tensorflow-gpu=2.1.0
+  - pip:
+  	- alibi
+prefix: /home/sohns/anaconda3/envs/coffi-benchmark
+#  - cudnn=8.0.4=cuda11.0_0
+#  - cudatoolkit-dev=11.0.3

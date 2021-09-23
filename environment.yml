@@ -1,0 +1,23 @@
+name: coffi
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - bokeh
+  - ipykernel
+  - matplotlib
+  - notebook
+  - numpy
+  - pandas
+  - panel
+  - pip
+  - scikit-learn
+  - scipy
+  - seaborn
+  - shap
+  - umap-learn
+  - selenium
+  - firefox 
+  - geckodriver
+  - python=3.7.10
+prefix: /home/sohns/anaconda3/envs/coffi
