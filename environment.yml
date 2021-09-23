@@ -2,14 +2,17 @@ name: coffi
 channels:
   - conda-forge
   - defaults
+  - pyviz
 dependencies:
+  - jupyter-panel-proxy
+  - pyviz::pyviz_comms
   - bokeh
   - ipykernel
   - matplotlib
   - notebook
   - numpy
   - pandas
-  - panel
+  - pyviz::panel
   - pip
   - scikit-learn
   - scipy
