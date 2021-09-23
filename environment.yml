@@ -19,8 +19,5 @@ dependencies:
   - seaborn
   - shap
   - umap-learn
-  - selenium
-  - firefox 
-  - geckodriver
   - python=3.7.10
 prefix: /home/sohns/anaconda3/envs/coffi
