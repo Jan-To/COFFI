@@ -1,6 +1,6 @@
 # COFFI
 
-### Visual Analysis Local Decision Boundary Exploration
+### Decision Boundary Visualization for Counterfactual Reasoning
 
 #### Interactive Prototype on Binder
 
@@ -10,7 +10,7 @@
 
 - download repository
 ```
-git clone https://github.com/leitte/NoLiES
+git clone https://github.com/Jan-To/COFFI
 ```
 - create anaconda environment 
 ```
@@ -24,13 +24,3 @@ conda activate coffi
 ```
 panel serve --show embedding_tool2.1.ipynb
 ```
-
-#### Authors
-
-Jan-Tobias Sohns, Prof. Dr. Christoph Garth, Prof. Dr. Heike Leitte
-
-Technical University of Kaiserslautern
-
-#### Acknowledgements
-
-This work was supported by IRTG2057
