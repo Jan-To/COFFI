@@ -10,6 +10,7 @@ dependencies:
   - ipykernel
   - matplotlib
   - notebook
+  - numba=0.52.0
   - numpy
   - pandas
   - pyviz::panel
