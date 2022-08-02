@@ -46,22 +46,6 @@ def load_dataset(name):
         features = X.columns[:-1]
         classes = ["diabetes","no diabetes"]
         categories = get_categories(data, [False, False, False, False, False, False, False, False])
-#     if name=="winequality-white":
-#         X = pd.read_csv("./data/winequality-white.csv", sep=';')
-#         data = X.to_numpy()[:100,:-1]
-#         target = np.array(X.to_numpy()[:100,-1], dtype=int)
-#         target = target-np.amin(target)
-#         features = X.columns[:-1]
-#         classes = [str(c) for c in np.unique(target)]
-#         categories = []
-#     if name=="winequality-red":
-#         X = pd.read_csv("./data/winequality-red.csv", sep=';')
-#         data = X.to_numpy()[:100,:-1]
-#         target = np.array(X.to_numpy()[:100,-1], dtype=int)
-#         target = target-np.amin(target)
-#         features = X.columns[:-1]
-#         classes = [str(c) for c in np.unique(target)]
-#         categories = []
     if name=="heart-failure":
 #         select = [0,4,7,8,11,-1]
         select = [0,1,2,3,4,5,6,7,8,9,10,12]
@@ -99,7 +83,7 @@ def load_dataset(name):
         features = features.tolist()
     dim = len(features)
     
-    if name=="shuttle" or name=="robot24" or name=="robot4":
+    if name == "shuttle" or name=="robot24" or name=="robot4":
         n = 400
         new_data = np.zeros((0,data.shape[1]))
         new_target = np.zeros(0, dtype=int)
@@ -121,7 +105,7 @@ def get_categories(data, which):
     c = 0
     for i in which:
         if i:
-            categories += [np.unique(cat_data[:,c])]
+            categories += [np.arange(np.amax(np.unique(cat_data[:,c]))+1)]
             c += 1
         else:
             categories += [None]
@@ -184,8 +168,7 @@ class SVD():
         return X
 
 def update_table(tbl, src, dataset, predictor, embedding, params, full=True):
-    point = dataset.point[dataset.features].to_numpy().reshape(1,-1)
-
+    point = pd.DataFrame([dataset.point[dataset.features]])
     lin_cm = LinearSegmentedColormap.from_list("mycmap", \
                     ["white", params.palette[predictor.predict(point)[0]]])
     
@@ -198,7 +181,7 @@ def update_table(tbl, src, dataset, predictor, embedding, params, full=True):
             red_influence = np.insert(red_influence, i, 0)
     
     if full:
-        importances = permutation_importance(predictor, dataset.data.loc[embedding.nn_ind,dataset.features].to_numpy(), 
+        importances = permutation_importance(predictor, dataset.data.loc[embedding.nn_ind,dataset.features], 
                                              np.argmax(np.array(dataset.data.loc[embedding.nn_ind,'prob'].tolist()), axis=1),
                                              n_repeats=5, random_state=0).importances_mean
         if np.any((importances != 0)):
@@ -265,12 +248,9 @@ def update_df(tbl, dataset, params):
 # compute conditional expectation in bounds for all classes
 # predict should expect a single instance and 
 #         return either a single prediction probability or an array thereof
-def partial_dependence(predict, x, bounds, categories, res=20):
+def partial_dependence(predict, x, bounds, categories, features, res=20):
     pds_x = []
     pds_y = []
-    
-    def single_predict(x):
-        return predict(x.reshape(1,-1))[0]
     
     for f in range(x.size):
         # init
@@ -281,7 +261,7 @@ def partial_dependence(predict, x, bounds, categories, res=20):
             for c in categories[f]:
                 ref[f] = c
                 # predict test instance
-                ref_pred = single_predict(ref)
+                ref_pred = predict(pd.DataFrame(ref, index=features).T)[0]
                 # save
                 pd_x.append(ref[f])
                 pd_y.append(ref_pred)
@@ -292,7 +272,7 @@ def partial_dependence(predict, x, bounds, categories, res=20):
             # insert prediction at x to stay consistent over features
             arr = np.insert(arr, bisect(arr[:,f], x[f]), x, axis=0)
             # predict instances
-            ref_pred = predict(arr)
+            ref_pred = predict(pd.DataFrame(arr, columns=features))
             # save
             pd_x = arr[:,f]
             pd_y = ref_pred
@@ -318,19 +298,34 @@ def plot_horizons( predict_fn, dataset, params, pt_source, cf_source):
     plots = pn.Column()
     
     pds_x, pds_y = partial_dependence(predict_fn, dataset.point[dataset.features].to_numpy(), 
-                                      dataset.bounds, dataset.categories, params.pdp_res)
+                                      dataset.bounds, dataset.categories, dataset.features, params.pdp_res)
     df_pdp = pd.DataFrame({'x': pds_x, 'y': pds_y}, index=dataset.features)
 
-    for f in df_pdp.index:
-        p = figure(height=int(params.total_height/len(df_pdp)), width=params.hor_width, 
+    for i,f in enumerate(df_pdp.index):
+        # handle categorical 'horizons' as stacked bar charts
+        if dataset.categories[i] is not None:
+            p = figure(height=int(params.total_height/len(df_pdp)), width=params.hor_width, 
+                   y_range=(0,0.25), x_range=(df_pdp.loc[f,'x'][0]-0.5,df_pdp.loc[f,'x'][-1]+0.5), 
+                   tools=[], x_axis_location='above', min_border_left=0, min_border_right=0)
+            max_x = df_pdp.loc[f,'x'][-1] + 1
+            p.xaxis.ticker = FixedTicker(ticks=[i for i in range(int(max_x))])
+            
+            for i in range(len(df_pdp.loc[f,'y'][0])):
+                p.vbar(x=df_pdp.loc[f,'x'], top=[v[i]-0.5 for v in df_pdp.loc[f,'y']], width=1-(max_x*0.003),
+                        color=params.palette[int(i*5+2)], name='a'+str(i*2))
+                p.vbar(x=df_pdp.loc[f,'x'], top=[v[i]-0.75 for v in df_pdp.loc[f,'y']], width=1-(max_x*0.003),
+                        color=params.palette[int(i*5+4)], name='a'+str(i*2+1))
+        else:
+        # plot horizons
+            p = figure(height=int(params.total_height/len(df_pdp)), width=params.hor_width, 
                    y_range=(0,0.25), x_range=(df_pdp.loc[f,'x'][0],df_pdp.loc[f,'x'][-1]), 
                    tools=[], x_axis_location='above', min_border_left=0, min_border_right=0)
-        
-        for i in range(len(df_pdp.loc[f,'y'][0])):
-            p.varea(x=df_pdp.loc[f,'x'], y1=[0]*len(df_pdp.loc[f,'x']), y2=[v[i]-0.5 for v in df_pdp.loc[f,'y']], 
-                    color=params.palette[int(i*5+2)], name='a'+str(i*2))
-            p.varea(x=df_pdp.loc[f,'x'], y1=[0]*len(df_pdp.loc[f,'x']), y2=[v[i]-0.75 for v in df_pdp.loc[f,'y']], 
-                    color=params.palette[int(i*5+4)], name='a'+str(i*2+1))
+            
+            for i in range(len(df_pdp.loc[f,'y'][0])):
+                p.varea(x=df_pdp.loc[f,'x'], y1=[0]*len(df_pdp.loc[f,'x']), y2=[v[i]-0.5 for v in df_pdp.loc[f,'y']], 
+                        color=params.palette[int(i*5+2)], name='a'+str(i*2))
+                p.varea(x=df_pdp.loc[f,'x'], y1=[0]*len(df_pdp.loc[f,'x']), y2=[v[i]-0.75 for v in df_pdp.loc[f,'y']], 
+                        color=params.palette[int(i*5+4)], name='a'+str(i*2+1))
 
         for color, src, name in zip(['#444444','black'], [cf_source,pt_source], ['cf','pt']):
             p.line(x=f, y='y', color=color, line_width=2, name=name+'_line', source=src.line)
@@ -367,6 +362,7 @@ def update_horizon_lines(horizons, features, point, name="pt"):
         
 def update_embedding(p, params, dataset, embedding, predictor, average, plot_range=None):
     '''Adjust the embedding view to new PCA.'''
+    
     # set up background image bound
     if plot_range is None:
         x_lef = min(dataset.data.loc[embedding.nn_ind,'x'])
@@ -397,22 +393,28 @@ def update_embedding(p, params, dataset, embedding, predictor, average, plot_ran
         py = np.linspace(y_min, y_max, num=N)
         xx, yy = np.meshgrid(px,py)
 
-        #tic = time.perf_counter()
+#         tic = time.perf_counter()
         invp = inv_tf_fn(np.c_[xx.ravel(), yy.ravel()])
-        #tac = time.perf_counter()
+#         tac = time.perf_counter()
 
         for i,f in enumerate(dataset.features):
+            # insert fixed features
             if f not in dataset.selected_features:
                 invp = np.insert(invp, i, [dataset.point[i]]*len(invp), axis=1)
-
-        probs = predict_fn(invp)
-        #toc = time.perf_counter()
-        #print("Compute inv_points:",tac-tic,"s")
-        #print("With Predict:",toc-tic,"s")
-        return probs
+                
+            # fix categorical values to integers
+            if dataset.categories[i] is not None:
+                invp[:,i] = np.around(invp[:,i])
+        
+        probs = predict_fn(pd.DataFrame(invp, columns=dataset.features))
+#         toc = time.perf_counter()
+#         print("Compute inv_points:",tac-tic,"s")
+#         print("With Predict:",toc-tic,"s")
+        return probs, invp
     
+    # iterate zoom until a decision boundary is within the window
     for i in range(1,6):    
-        probs = compute_and_predict_grid(dataset, embedding.emb.inverse_transform, predictor.predict_proba, N, x_min, x_max, y_min, y_max)
+        probs, invp = compute_and_predict_grid(dataset, embedding.emb.inverse_transform, predictor.predict_proba, N, x_min, x_max, y_min, y_max)
         visible_class_count = np.count_nonzero(np.amax(probs, axis=0) > 0.5)
         if visible_class_count >= 2 or plot_range is not None: 
             break
@@ -430,6 +432,9 @@ def update_embedding(p, params, dataset, embedding, predictor, average, plot_ran
     source.data['dw'] = [x_max-x_min]
     source.data['dh'] = [y_max-y_min]
     
+    for i, f in enumerate(dataset.features):
+        source.data[f] = [invp[:,i].reshape((N,N))]
+    
     # update plot ranges (triggers plot range listener)
     if plot_range is None:
         p.x_range.update(start=x_min, end=x_max)
@@ -438,8 +443,8 @@ def update_embedding(p, params, dataset, embedding, predictor, average, plot_ran
     # update axes
     axis_x = []
     axis_y = []
-    point = dataset.point[dataset.selected_features].to_numpy()
-    point_xy = embedding.emb.transform([point])[0]
+    point = dataset.point[dataset.selected_features].to_frame().T
+    point_xy = embedding.emb.transform(point)[0]
     s = find_axes_scaling(point_xy, embedding.emb['pca'].components_, [x_min, x_max, y_min, y_max])
     axis_x = embedding.emb['pca'].components_[0]*s + point_xy[0]
     axis_y = embedding.emb['pca'].components_[1]*s + point_xy[1]
@@ -457,12 +462,13 @@ def update_embedding(p, params, dataset, embedding, predictor, average, plot_ran
 #     text_y[8] = text_y[8]-0.3
     p.select('text').data_source.data = dict(x=axis_x, y=text_y, text=dataset.selected_features)
     
-    # update hover tools TODO breaks on dataset change
-    hover = p.select(name='hover')[0]
-    TOOLTIPS = [("id", "$index"),
-                ('prob', "@maxprob{0%}")] + [(f, "@{"+f+"}") for f in dataset.features]
-    hover.tooltips=TOOLTIPS
-    
+    # update hover tools
+    if params.tooltip_pt:
+        p.select(name='hover_emb')[0].tooltips = None
+        p.select(name='hover_pt')[0].tooltips = [("id", "$index"), ('prob', "@maxprob{0%}")] + [(f, "@{"+f+"}") for f in dataset.features]
+    else:
+        p.select(name='hover_pt')[0].tooltips = None
+        p.select(name='hover_emb')[0].tooltips = [(f, "@{"+f+"}{0.0}") for f in dataset.features]
     
 def embedding_view(params, dataset, embedding, predictor, avg, cf_source):
     '''Create the embedding view.'''
@@ -470,12 +476,15 @@ def embedding_view(params, dataset, embedding, predictor, avg, cf_source):
                tools="pan,tap,box_select,lasso_select", 
                x_range=(-1,1), y_range=(-1,1), min_border=0)
     
-    p.add_tools(HoverTool(names=["scatter"], name='hover'), WheelZoomTool(zoom_on_axis=False))
+    p.add_tools(HoverTool(names=["scatter"], name='hover_pt'),
+                HoverTool(names=["image"], name='hover_emb'),
+                WheelZoomTool(zoom_on_axis=False))
     
     p.cross(source=cf_source, x='x', y='y', color='#444444', size=12, line_width=3, name='cf', 
              nonselection_fill_alpha=1, nonselection_line_alpha=1)
     mapper = linear_cmap(field_name='sat_color', palette=params.palette, low=0, high=params.num_colors)
-    p.scatter(source=dataset.datasource, x='x', y='y', color='sat_color', line_color='line_color', 
+    
+    p.scatter(source=dataset.datasource, x='x', y='y', color='sat_color', line_color='line_color',
               size='size', name="scatter", nonselection_fill_alpha=0.0, nonselection_line_alpha=0.0)
     
     p.scatter(source=dataset.datasource, x='x', y='y', fill_color='target_color',
@@ -502,23 +511,6 @@ def embedding_view(params, dataset, embedding, predictor, avg, cf_source):
     return pn.pane.Bokeh(p)
 
 def colorbar_view(params, dataset):
-    # update colorbar
-#     ticks = [i+j for i in range(len(dataset.classes)) for j in (0.5,0.995)]
-#     tick_labels = {}
-#     for i,j in zip(ticks[0::2], ticks[1::2]):
-#         tick_labels[i] = '75% '+dataset.classes[int(j)]
-#         tick_labels[j] = '100% '+dataset.classes[int(j)]
-        
-#     cbar = ColorBar(
-#         color_mapper=LinearColorMapper(palette=params.palette[:5*len(dataset.classes)], 
-#                                        low=0, high=len(dataset.classes)),
-#         ticker=FixedTicker(ticks=ticks), major_label_overrides=tick_labels,
-#         border_line_color=None, major_label_text_font_size='13px')
-    
-#     p = figure(height=params.emb_width, width=110, toolbar_location=None, 
-#                min_border=0, outline_line_color=None)
-#     p.add_layout(cbar, 'right')
-    
     p = figure(height=150, width=200, toolbar_location=None, min_border=5, x_range=[50,100], y_range=dataset.classes,
                y_axis_location='right')
     p.rect(x=len(dataset.classes)*[55+10*i for i in range(5)], y=np.repeat(dataset.classes,5), 
@@ -543,13 +535,6 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from bokeh.models import Range1d
 from sklearn.manifold import TSNE
-
-#from tensorflow.keras.models import Sequential
-#from tensorflow.keras.layers import Dense
-#from tensorflow.keras.initializers import VarianceScaling, Constant
-#from tensorflow.keras.models import load_model
-#from tensorflow.keras.callbacks import EarlyStopping
-
 
 def update_non_linear_view(p, dataset, predictor, method="UMAP", neighbors=20, sel_feats_only=False):
     # reduce data with non-linear DR
@@ -576,86 +561,13 @@ def update_non_linear_view(p, dataset, predictor, method="UMAP", neighbors=20, s
     p.y_range.update(start=y_min, end=y_max)
     
     # update plot datasource
-    dataset.datasource.data['x1'] = reduced[:,0]
-    dataset.datasource.data['y1'] = reduced[:,1]
-    
-    ### create background map ###
-    
-#     # prepare data transformations
-#     unit_scaler = MinMaxScaler()
-#     if sel_feats_only:
-#         target = unit_scaler.fit_transform(dataset.data[dataset.selected_features])
-#     else:
-#         target = unit_scaler.fit_transform(dataset.data[dataset.features])
-                        
-#     # define keras model
-#     var_init = VarianceScaling(scale=1.0, mode="fan_in", distribution="uniform", seed=42)
-#     const_init = Constant(0.01)
-#     model = Sequential()
-#     model.add(Dense(2048, input_dim=2, activation='relu'))
-#     model.add(Dense(2048, activation='relu'))
-#     model.add(Dense(2048, activation='relu'))
-#     model.add(Dense(2048, activation='relu'))
-#     if sel_feats_only:
-#         model.add(Dense(len(dataset.selected_features), activation='sigmoid'))
-#     else:
-#         model.add(Dense(len(dataset.features), activation='sigmoid'))
-    
-#     model.compile(loss='mse', optimizer='adam', metrics=['accuracy'])
-                        
-#     # train model
-#     permutation = np.random.rand(reduced.shape[0]).argsort()
-#     earlystop = EarlyStopping(patience=5)
-    
-#     tic = time.perf_counter()
-#     model.fit(reduced[permutation], target[permutation], epochs=20, batch_size=10, validation_split=0.25, 
-#     callbacks=[earlystop])
-#     toc = time.perf_counter()
-#     print("Train Model:",toc-tic,"s")
-    
-#     # save model
-# #     model.save('NNInv')
-
-# #     # load model
-# #     model = load_model('NNInv')
-    
-#     # create samples
-#     N = 200
-#     px = np.linspace(x_min, x_max, num=N)
-#     py = np.linspace(y_min, y_max, num=N)
-#     xx, yy = np.meshgrid(px,py)
-#     grid = np.c_[xx.ravel(), yy.ravel()]
-    
-#     # infer samples
-#     tic = time.perf_counter()
-#     invp = model.predict(grid)
-#     invp = unit_scaler.inverse_transform(invp)
-#     toc = time.perf_counter()
-#     print("Infer",(N*N)/1000,"K samples:",toc-tic,"s")
-    
-#     # predict samples
-#     tic = time.perf_counter()
-#     probs = predictor.predict_proba(invp)
-#     toc = time.perf_counter()
-#     print("Predict Samples:",toc-tic,"s")
-    
-#     # update image
-#     img_src = (np.clip(np.max(probs, axis=1),0.501,0.999) - 0.5) * 2 + np.argmax(probs, axis=1) 
-#     source = p.select('image').data_source
-#     source.data['image'] = [img_src.reshape((N,N))]
-#     source.data['x'] = [x_min]
-#     source.data['y'] = [y_min]
-#     source.data['dw'] = [x_max-x_min]
-#     source.data['dh'] = [y_max-y_min]
+    dataset.datasource.stream(dataset.data, rollover=dataset.data.shape[0])
 
 
 def non_linear_view(params, dataset, predictor):
     p = figure(height=params.bot_height, width=params.bot_height+30, tools="pan,tap,box_select,lasso_select", x_range=(-1,1), y_range=(-1,1))
     
     p.add_tools(HoverTool(names=["scatter"], name='hover', tooltips = [("id", "$index")]), WheelZoomTool(zoom_on_axis=False))
-    
-#     p.image(image=[[]], color_mapper=LinearColorMapper(palette=params.palette, low=0, high=params.num_colors), 
-#             name='image', x=[0], y=[0], dw=[0], dh=[0], level='underlay')
     
     update_non_linear_view(p, dataset, predictor)
     
@@ -673,7 +585,6 @@ def non_linear_view(params, dataset, predictor):
     p.axis.visible = False
     p.xgrid.visible = False
     p.ygrid.visible = False
-#     p.outline_line_color = None
     p.toolbar_location = "right"
     p.toolbar.logo = None
     p.toolbar.active_scroll = p.select_one(WheelZoomTool)
@@ -727,7 +638,7 @@ def find_axes_scaling(origin, components, bounds):
             ext = directed_boundary_intersection(origin, origin+components[:,i], corners[x[0]], corners[x[1]])
             if ext != False: break
         if ext is False: # origin was not within corners
-            print("error computing axes scaling.", origin, components[:,i], bounds) 
+#             print("error computing axes scaling.", origin, components[:,i], bounds) 
             continue
         s_ = (np.linalg.norm(ext-origin) / np.linalg.norm(components[:,i])) * 0.9
         if s_ < s: s = s_
