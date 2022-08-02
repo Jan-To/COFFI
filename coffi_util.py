@@ -363,6 +363,9 @@ def update_horizon_lines(horizons, features, point, name="pt"):
 def update_embedding(p, params, dataset, embedding, predictor, average, plot_range=None):
     '''Adjust the embedding view to new PCA.'''
     
+    # update plot datasource
+    dataset.datasource.stream(dataset.data, rollover=dataset.data.shape[0])
+    
     # set up background image bound
     if plot_range is None:
         x_lef = min(dataset.data.loc[embedding.nn_ind,'x'])
