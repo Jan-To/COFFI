@@ -22,5 +22,5 @@ conda activate coffi
 ```
 - run COFFI
 ```
-panel serve --show embedding_tool2.1.ipynb
+panel serve --show coffi.ipynb
 ```
