@@ -4,7 +4,7 @@
 
 #### Interactive Prototype on Binder
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Jan-To/COFFI/HEAD?urlpath=/panel/embedding_tool2.1)
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Jan-To/COFFI/HEAD?urlpath=/panel/coffi)
 
 #### Download instructions
 
