@@ -17,6 +17,12 @@ from matplotlib.colors import LinearSegmentedColormap
 from bisect import bisect, bisect_left
 from scipy import linalg
 
+def classify(x, bounds):
+    for i, b in enumerate(bounds):
+        if x < b:
+            return i
+    return len(bounds)
+
 def load_dataset(name):
     if name=="iris":
         dataset = sklearn.datasets.load_iris()
@@ -78,10 +84,37 @@ def load_dataset(name):
         features = ["front","left","right","back"]
         classes = ["Move-Forward", "Slight-Right-Turn", "Sharp-Right-Turn", "Slight-Left-Turn"]
         categories = get_categories(data, 4*[False])
+    if name=="u-classes":
+        X = pd.read_excel("./data/thermo.xlsx")
+        data = X[["Name","u1","u2","u3","u4"]].to_numpy()
+        target = X['Group_ID'].to_numpy()
+        feats = ["u1","u2","u3","u4"]
+        classes = X['Group'].value_counts().index.to_numpy()
+        categories = get_categories(data[:,1:], 4*[False])
+        return pd.DataFrame(data, columns=['Name']+feats), target, feats, classes, categories, None
+    if name in ["u1","u2","u3","u4"]:
+        X = pd.read_excel("./data/thermo.xlsx")
+        feats = ['Dipole Mom.', 'Polarizab.', 'Anisotr.', 'Norm. Aniso.', 'H-Bond Acc.', 'H-Bond Don.', 
+                  'HomoLumoGap', 'IonizationEnergy', 'ElectronAffinity', 'Molar Mass']
+        data = X[['Name']+feats].to_numpy()
+        target_raw = X[name].to_numpy()
+        histo_data = np.histogram(target_raw, bins=20)
+        if name=="u1":
+            bounds = histo_data[1][[12,15]]
+        if name=="u2":
+            bounds = histo_data[1][[7,11,15]]
+        if name=="u3":
+            bounds = histo_data[1][[9,14]]
+        if name=="u4":
+            bounds = histo_data[1][[9,14]]
+        histo_data = bounds, *histo_data
+        target = np.array([classify(u, bounds) for u in target_raw])
+        classes = [name+' < '+str(round(b,1)) for b in bounds] + [name+' > '+str(round(bounds[-1],1))]
+        categories = get_categories(data[:,1:], len(feats)*[False])
+        return pd.DataFrame(data, columns=['Name']+feats), target, feats, classes, categories, histo_data
 
     if not isinstance(features, list):
         features = features.tolist()
-    dim = len(features)
     
     if name == "shuttle" or name=="robot24" or name=="robot4":
         n = 400
@@ -96,7 +129,7 @@ def load_dataset(name):
         data = new_data
         target = new_target
 
-    return pd.DataFrame(data, columns=features), target, features, classes, dim, categories
+    return pd.DataFrame(data, columns=features), target, features, classes, categories, None
 
 
 def get_categories(data, which):
@@ -240,8 +273,10 @@ def update_df(tbl, dataset, params):
     <%= value.toFixed(2) %></div>
     '''
     columns = [TableColumn(field="maxprob", title="Model Pred.",
-               formatter=HTMLTemplateFormatter(template=template_prob))] + \
-              [TableColumn(field=f) for f in dataset.features]
+               formatter=HTMLTemplateFormatter(template=template_prob))]
+    if dataset.name in ["u1", "u2", "u3", "u4", "u-classes"]:
+        columns += [TableColumn(field="Name")]
+    columns += [TableColumn(field=f) for f in dataset.features]
     tbl.columns = columns
     
 
@@ -394,6 +429,7 @@ def update_embedding(p, params, dataset, embedding, predictor, average, plot_ran
     def compute_and_predict_grid(dataset, inv_tf_fn, predict_fn, N, x_min, x_max, y_min, y_max):
         px = np.linspace(x_min, x_max, num=N)
         py = np.linspace(y_min, y_max, num=N)
+        
         xx, yy = np.meshgrid(px,py)
 
 #         tic = time.perf_counter()
@@ -435,6 +471,8 @@ def update_embedding(p, params, dataset, embedding, predictor, average, plot_ran
     source.data['dw'] = [x_max-x_min]
     source.data['dh'] = [y_max-y_min]
     
+    p.select('image').glyph.color_mapper=LinearColorMapper(palette=params.palette, low=0, high=params.num_colors)
+    
     for i, f in enumerate(dataset.features):
         source.data[f] = [invp[:,i].reshape((N,N))]
     
@@ -468,7 +506,10 @@ def update_embedding(p, params, dataset, embedding, predictor, average, plot_ran
     # update hover tools
     if params.tooltip_pt:
         p.select(name='hover_emb')[0].tooltips = None
-        p.select(name='hover_pt')[0].tooltips = [("id", "$index"), ('prob', "@maxprob{0%}")] + [(f, "@{"+f+"}") for f in dataset.features]
+        if dataset.name in ["u1", "u2", "u3", "u4", "u-classes"]:
+            p.select(name='hover_pt')[0].tooltips = [("Name", "@Name"), ('prob', "@maxprob{0%}")] + [(f, "@{"+f+"}") for f in dataset.features]
+        else:
+            p.select(name='hover_pt')[0].tooltips = [("id", "$index"), ('prob', "@maxprob{0%}")] + [(f, "@{"+f+"}") for f in dataset.features]
     else:
         p.select(name='hover_pt')[0].tooltips = None
         p.select(name='hover_emb')[0].tooltips = [(f, "@{"+f+"}{0.0}") for f in dataset.features]
@@ -514,16 +555,30 @@ def embedding_view(params, dataset, embedding, predictor, avg, cf_source):
     return pn.pane.Bokeh(p)
 
 def colorbar_view(params, dataset):
-    p = figure(height=150, width=200, toolbar_location=None, min_border=5, x_range=[50,100], y_range=dataset.classes,
-               y_axis_location='right')
-    p.rect(x=len(dataset.classes)*[55+10*i for i in range(5)], y=np.repeat(dataset.classes,5), 
-           width=10, height=1, color=params.palette[:5*len(dataset.classes)])
-    p.axis.axis_line_color = None
+    if dataset.name in ["u1", "u2", "u3", "u4"]:
+        bounds, hist, edges = dataset.histo_data
+        colors = [params.color_list[classify(e, bounds)] for e in edges[:-1]]
+        p = figure(height=150, width=200, toolbar_location=None, min_border=5, y_axis_location='right')
+        p.quad(top=hist, bottom=0, left=edges[:-1], right=edges[1:],
+           fill_color=colors, line_color="white")
+        p.xaxis.axis_label=dataset.name
+        p.yaxis.axis_label='#solutes'
+    else:
+        p = figure(height=150, width=200, toolbar_location=None, min_border=5, x_range=[50,100], y_range=dataset.classes,
+                   y_axis_location='right')
+        p.rect(x=len(dataset.classes)*[55+10*i for i in range(5)], y=np.repeat(dataset.classes,5), 
+               width=10, height=1, color=params.palette[:5*len(dataset.classes)])
+        p.axis.axis_line_color = None
+        
     p.xaxis.minor_tick_line_color = None
-    p.yaxis.major_tick_line_color = None
+    p.yaxis.minor_tick_line_color = None
     p.yaxis.major_label_standoff = -1
+    p.xaxis.major_label_standoff = -1
+    p.yaxis.axis_label_standoff = -2
+    p.xaxis.axis_label_standoff = -3
     p.xaxis.major_tick_in = 0
-    
+    p.yaxis.major_tick_in = 0
+
     return pn.pane.Bokeh(p)
 
 
@@ -537,14 +592,16 @@ from umap import UMAP
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from bokeh.models import Range1d
-from sklearn.manifold import TSNE
+from sklearn.manifold import TSNE, MDS
 
-def update_non_linear_view(p, dataset, predictor, method="UMAP", neighbors=20, sel_feats_only=False):
+def update_non_linear_view(p, dataset, predictor, method="MDS", neighbors=20, sel_feats_only=False):
     # reduce data with non-linear DR
     if method == "UMAP":
         nl_pip = Pipeline([('scaler', StandardScaler()), ('reducer', UMAP(n_neighbors=neighbors, random_state=42))])
     elif method == "t-SNE":
         nl_pip = Pipeline([('scaler', StandardScaler()), ('reducer', TSNE(perplexity=neighbors, random_state=42))])
+    elif method == "MDS":
+        nl_pip = Pipeline([('scaler', StandardScaler()), ('reducer', MDS(n_components=2, random_state=42))])
     if sel_feats_only:
         reduced = nl_pip.fit_transform(dataset.data[dataset.selected_features])
     else:
@@ -570,7 +627,10 @@ def update_non_linear_view(p, dataset, predictor, method="UMAP", neighbors=20, s
 def non_linear_view(params, dataset, predictor):
     p = figure(height=params.bot_height, width=params.bot_height+30, tools="pan,tap,box_select,lasso_select", x_range=(-1,1), y_range=(-1,1))
     
-    p.add_tools(HoverTool(names=["scatter"], name='hover', tooltips = [("id", "$index")]), WheelZoomTool(zoom_on_axis=False))
+    if dataset.name in ["u1", "u2", "u3", "u4", "u-classes"]:
+        p.add_tools(HoverTool(names=["scatter"], name='hover', tooltips = [("Name", "@Name")]), WheelZoomTool(zoom_on_axis=False))
+    else:
+        p.add_tools(HoverTool(names=["scatter"], name='hover', tooltips = [("id", "$index")]), WheelZoomTool(zoom_on_axis=False))
     
     update_non_linear_view(p, dataset, predictor)
     
